@@ -11,9 +11,7 @@ COPY requirements.txt .
 RUN pip install --upgrade pip
 
 # Instalar dependencias (excepto torch, si da problemas)
-RUN grep -v "torch" requirements.txt > requirements-no-torch.txt \
-    && pip install -r requirements-no-torch.txt
-
+RUN grep -v "torch" requirements.txt 
 # Instalar torch CPU (opcional)
 RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
