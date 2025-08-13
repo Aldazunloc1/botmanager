@@ -21,5 +21,9 @@ COPY . .
 # Exponer el puerto del bot
 EXPOSE 8000
 
-# Comando por defecto al iniciar el contenedor
-CMD ["python", "main.py"]
+
+# Para la API
+CMD ["python", "app/main.py"]
+
+# Para el bot
+CMD ["python", "bot.py"]
