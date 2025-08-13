@@ -186,6 +186,29 @@ class DatabaseManager:
         resultados.sort(key=lambda x: x[2], reverse=True)
         return resultados[:Config.MAX_SEARCH_RESULTS]
 
+    @staticmethod
+    def acortar_nombre(nombre: str, max_chars: int = 25) -> str:
+        """Acorta nombres largos manteniendo información importante"""
+        if len(nombre) <= max_chars:
+            return nombre
+        
+        # Extraer extensión
+        nombre_base, extension = os.path.splitext(nombre)
+        
+        # Si la extensión es muy larga, recortarla también
+        if len(extension) > 8:
+            extension = extension[:8] + "..."
+        
+        # Calcular espacio disponible para el nombre base
+        espacio_disponible = max_chars - len(extension) - 3  # 3 para "..."
+        
+        if espacio_disponible > 0:
+            nombre_cortado = nombre_base[:espacio_disponible] + "..." + extension
+        else:
+            nombre_cortado = nombre[:max_chars-3] + "..."
+        
+        return nombre_cortado
+
 # ═══════════════════════════════════════════════════════════════════
 # 🤖 CLASE PRINCIPAL DEL BOT
 # ═══════════════════════════════════════════════════════════════════
@@ -224,7 +247,7 @@ class TelegramBot:
             return False
 
     # ═══════════════════════════════════════════════════════════════
-    # 📢 SISTEMA DE PUBLICACIONES PARA ADMIN
+    # 📢 SISTEMA DE PUBLICACIONES PARA ADMIN - CORREGIDO
     # ═══════════════════════════════════════════════════════════════
 
     async def post_to_channel_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -312,7 +335,8 @@ class TelegramBot:
             await update.message.reply_text(
                 "✅ *Texto guardado*\n\n"
                 "📤 Ahora envía el archivo (imagen, video o documento)\n"
-                "💡 Envía /cancel para cancelar"
+                "💡 Envía /cancel para cancelar",
+                parse_mode="Markdown"
             )
             return POST_MEDIA
 
@@ -338,6 +362,12 @@ class TelegramBot:
         elif update.message.animation:
             file_info = update.message.animation
             file_type = 'animation'
+        elif update.message.audio:
+            file_info = update.message.audio
+            file_type = 'audio'
+        elif update.message.voice:
+            file_info = update.message.voice
+            file_type = 'voice'
         else:
             await update.message.reply_text(
                 "❌ *Tipo de archivo no soportado*\n\n"
@@ -345,7 +375,9 @@ class TelegramBot:
                 "• 🖼️ Imagen\n"
                 "• 🎥 Video\n"
                 "• 📄 Documento\n"
-                "• 🎞️ GIF/Animación"
+                "• 🎞️ GIF/Animación\n"
+                "• 🎵 Audio",
+                parse_mode="Markdown"
             )
             return POST_MEDIA
 
@@ -370,7 +402,7 @@ class TelegramBot:
     async def confirmar_publicacion(self, update: Update, context: ContextTypes.DEFAULT_TYPE, 
                                   texto: str = None, file_id: str = None, file_type: str = None, 
                                   file_name: str = None):
-        """Confirma y publica el contenido en el canal"""
+        """Confirma y publica el contenido en el canal - CORREGIDO"""
         try:
             # Preparar el mensaje de confirmación
             if file_id:
@@ -378,7 +410,9 @@ class TelegramBot:
                     'photo': '🖼️',
                     'video': '🎥', 
                     'document': '📄',
-                    'animation': '🎞️'
+                    'animation': '🎞️',
+                    'audio': '🎵',
+                    'voice': '🎤'
                 }.get(file_type, '📎')
                 
                 confirmacion = (
@@ -389,35 +423,25 @@ class TelegramBot:
                 if texto:
                     confirmacion += f"📝 *Texto:*\n{texto[:200]}{'...' if len(texto) > 200 else ''}\n\n"
                 
-                # Publicar en el canal
-                if file_type == 'photo':
-                    await context.bot.send_photo(
-                        chat_id=Config.CANAL_ID,
-                        photo=file_id,
-                        caption=texto,
+                # Publicar en el canal con manejo de errores mejorado
+                success = await self.publicar_multimedia_en_canal(
+                    context, file_id, file_type, texto
+                )
+                
+                if not success:
+                    await update.message.reply_text(
+                        "❌ *Error al enviar al canal*\n\n"
+                        "🔍 *Posibles causas:*\n"
+                        "• Bot no es administrador del canal\n"
+                        "• Canal ID incorrecto\n"
+                        "• Archivo demasiado grande\n"
+                        "• Permisos insuficientes\n\n"
+                        f"📺 *Canal configurado:* `{Config.CANAL_ID}`\n"
+                        "💡 Verifica la configuración del bot en el canal",
                         parse_mode="Markdown"
                     )
-                elif file_type == 'video':
-                    await context.bot.send_video(
-                        chat_id=Config.CANAL_ID,
-                        video=file_id,
-                        caption=texto,
-                        parse_mode="Markdown"
-                    )
-                elif file_type == 'animation':
-                    await context.bot.send_animation(
-                        chat_id=Config.CANAL_ID,
-                        animation=file_id,
-                        caption=texto,
-                        parse_mode="Markdown"
-                    )
-                else:  # document
-                    await context.bot.send_document(
-                        chat_id=Config.CANAL_ID,
-                        document=file_id,
-                        caption=texto,
-                        parse_mode="Markdown"
-                    )
+                    return ConversationHandler.END
+                
             else:
                 # Solo texto
                 confirmacion = (
@@ -425,11 +449,27 @@ class TelegramBot:
                     f"📝 *Contenido:*\n{texto[:300]}{'...' if len(texto) > 300 else ''}\n\n"
                 )
                 
-                await context.bot.send_message(
-                    chat_id=Config.CANAL_ID,
-                    text=texto,
-                    parse_mode="Markdown"
-                )
+                # Dividir texto largo si es necesario
+                if len(texto) > 4000:
+                    chunks = [texto[i:i+4000] for i in range(0, len(texto), 4000)]
+                    for i, chunk in enumerate(chunks):
+                        try:
+                            await context.bot.send_message(
+                                chat_id=Config.CANAL_ID,
+                                text=chunk,
+                                parse_mode="Markdown"
+                            )
+                            if i < len(chunks) - 1:
+                                await asyncio.sleep(1)  # Pausa entre mensajes
+                        except TelegramError as e:
+                            logger.error(f"❌ Error enviando chunk {i+1}: {e}")
+                            raise
+                else:
+                    await context.bot.send_message(
+                        chat_id=Config.CANAL_ID,
+                        text=texto,
+                        parse_mode="Markdown"
+                    )
 
             confirmacion += (
                 f"📺 *Canal:* `{Config.CANAL_ID}`\n"
@@ -441,13 +481,82 @@ class TelegramBot:
             logger.info(f"📢 Publicación enviada al canal por admin {update.effective_user.id}")
 
         except TelegramError as e:
-            error_msg = f"❌ Error al enviar publicación: {str(e)}"
+            error_msg = f"❌ *Error de Telegram:* {str(e)}"
+            if "chat not found" in str(e).lower():
+                error_msg += "\n\n🔍 *Solución:*\nVerifica que el bot sea administrador del canal"
+            elif "forbidden" in str(e).lower():
+                error_msg += "\n\n🔍 *Solución:*\nEl bot necesita permisos de administrador"
+            elif "bad request" in str(e).lower():
+                error_msg += "\n\n🔍 *Solución:*\nRevisa el formato del mensaje o archivo"
+            
             logger.error(f"❌ Error al publicar en canal: {e}")
-            await update.message.reply_text(error_msg)
+            await update.message.reply_text(error_msg, parse_mode="Markdown")
         except Exception as e:
-            error_msg = f"❌ Error inesperado: {str(e)}"
+            error_msg = f"❌ *Error inesperado:* {str(e)}"
             logger.error(f"❌ Error inesperado en publicación: {e}")
-            await update.message.reply_text(error_msg)
+            await update.message.reply_text(error_msg, parse_mode="Markdown")
+
+    async def publicar_multimedia_en_canal(self, context: ContextTypes.DEFAULT_TYPE, 
+                                         file_id: str, file_type: str, caption: str = None) -> bool:
+        """Publica multimedia en el canal con manejo robusto de errores"""
+        try:
+            # Limitar caption a 1024 caracteres (límite de Telegram)
+            if caption and len(caption) > 1024:
+                caption = caption[:1021] + "..."
+            
+            # Enviar según el tipo de archivo
+            if file_type == 'photo':
+                await context.bot.send_photo(
+                    chat_id=Config.CANAL_ID,
+                    photo=file_id,
+                    caption=caption,
+                    parse_mode="Markdown"
+                )
+            elif file_type == 'video':
+                await context.bot.send_video(
+                    chat_id=Config.CANAL_ID,
+                    video=file_id,
+                    caption=caption,
+                    parse_mode="Markdown"
+                )
+            elif file_type == 'animation':
+                await context.bot.send_animation(
+                    chat_id=Config.CANAL_ID,
+                    animation=file_id,
+                    caption=caption,
+                    parse_mode="Markdown"
+                )
+            elif file_type == 'audio':
+                await context.bot.send_audio(
+                    chat_id=Config.CANAL_ID,
+                    audio=file_id,
+                    caption=caption,
+                    parse_mode="Markdown"
+                )
+            elif file_type == 'voice':
+                await context.bot.send_voice(
+                    chat_id=Config.CANAL_ID,
+                    voice=file_id,
+                    caption=caption,
+                    parse_mode="Markdown"
+                )
+            else:  # document
+                await context.bot.send_document(
+                    chat_id=Config.CANAL_ID,
+                    document=file_id,
+                    caption=caption,
+                    parse_mode="Markdown"
+                )
+            
+            logger.info(f"✅ {file_type} enviado al canal exitosamente")
+            return True
+            
+        except TelegramError as e:
+            logger.error(f"❌ Error al enviar {file_type} al canal: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"❌ Error inesperado al enviar multimedia: {e}")
+            return False
 
     async def cancel_post(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Cancela el proceso de publicación"""
@@ -596,23 +705,29 @@ class TelegramBot:
             tipo_icono = "🔗" if solicitud['tipo'] == "ENLACE" else "📝"
             fecha = datetime.fromisoformat(solicitud['fecha_creacion']).strftime('%d/%m/%Y')
             
-            mensaje += f"{estado_icono} *{i}. {solicitud['id']}*\n"
-            mensaje += f"{tipo_icono} {solicitud['tipo']} • 📅 {fecha}\n"
-            mensaje += f"💬 {solicitud['contenido'][:80]}{'...' if len(solicitud['contenido']) > 80 else ''}\n"
+            # Formato mejorado y compacto
+            contenido_corto = DatabaseManager.acortar_nombre(solicitud['contenido'], 60)
+            
+            mensaje += f"{estado_icono} `{solicitud['id']}` • {tipo_icono} • 📅 {fecha}\n"
+            mensaje += f"💬 {contenido_corto}\n"
             
             if solicitud.get('respuesta_admin'):
-                mensaje += f"👨‍💼 *Admin:* {solicitud['respuesta_admin'][:60]}{'...' if len(solicitud['respuesta_admin']) > 60 else ''}\n"
+                respuesta_corta = DatabaseManager.acortar_nombre(solicitud['respuesta_admin'], 50)
+                mensaje += f"👨‍💼 {respuesta_corta}\n"
             
-            mensaje += "────────────────────\n"
+            mensaje += "──────────────────\n"
         
         if len(mis_solicitudes) > 10:
-            mensaje += f"\n... y {len(mis_solicitudes) - 10} solicitudes más\n"
+            mensaje += f"\n📄 *Mostrando 10 de {len(mis_solicitudes)} solicitudes*\n"
+        
+        # Resumen estadístico
+        pendientes = sum(1 for s in mis_solicitudes if s['estado'] == 'PENDIENTE')
+        completadas = sum(1 for s in mis_solicitudes if s['estado'] == 'COMPLETADO')
+        rechazadas = sum(1 for s in mis_solicitudes if s['estado'] == 'RECHAZADO')
         
         mensaje += (
-            f"\n📊 *Resumen:*\n"
-            f"⏳ Pendientes: {sum(1 for s in mis_solicitudes if s['estado'] == 'PENDIENTE')}\n"
-            f"✅ Completadas: {sum(1 for s in mis_solicitudes if s['estado'] == 'COMPLETADO')}\n"
-            f"❌ Rechazadas: {sum(1 for s in mis_solicitudes if s['estado'] == 'RECHAZADO')}"
+            f"\n📈 *Resumen:*\n"
+            f"⏳ Pendientes: {pendientes} | ✅ Completadas: {completadas} | ❌ Rechazadas: {rechazadas}"
         )
         
         await self.enviar_mensaje_largo(update, mensaje, "Markdown", context)
@@ -622,7 +737,7 @@ class TelegramBot:
     # ═══════════════════════════════════════════════════════════════
 
     async def admin_requests(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Comando /adminrequests - Ver todas las solicitudes (admin)"""
+        """Comando /adminrequests - Ver todas las solicitudes (admin) - MEJORADO"""
         if not self.es_admin(update.effective_user.id):
             await update.message.reply_text("🚫 No tienes permiso para usar este comando.")
             return
@@ -637,35 +752,38 @@ class TelegramBot:
         if context.args and context.args[0].upper() in ['PENDIENTE', 'COMPLETADO', 'RECHAZADO']:
             estado_filtro = context.args[0].upper()
             todas_solicitudes = [s for s in todas_solicitudes if s['estado'] == estado_filtro]
-            titulo_extra = f" - {estado_filtro}S"
+            titulo_extra = f" {estado_filtro}S"
         else:
             titulo_extra = ""
 
         # Ordenar por fecha (más recientes primero)
         todas_solicitudes.sort(key=lambda x: x['fecha_creacion'], reverse=True)
         
-        mensaje = f"📋 *Todas las Solicitudes{titulo_extra} ({len(todas_solicitudes)}):*\n\n"
+        mensaje = f"📋 *Solicitudes{titulo_extra} ({len(todas_solicitudes)}):*\n\n"
         
-        for i, solicitud in enumerate(todas_solicitudes[:15], 1):  # Mostrar máximo 15
+        for i, solicitud in enumerate(todas_solicitudes[:12], 1):  # Mostrar máximo 12
             estado_icono = Config.REQUEST_STATES.get(solicitud['estado'], '❓')
             tipo_icono = "🔗" if solicitud['tipo'] == "ENLACE" else "📝"
             fecha = datetime.fromisoformat(solicitud['fecha_creacion']).strftime('%d/%m')
             
-            mensaje += f"{estado_icono} *{solicitud['id']}* • {tipo_icono} • 📅 {fecha}\n"
-            mensaje += f"👤 {solicitud['usuario_nombre']} (`{solicitud['usuario_id']}`)\n"
-            mensaje += f"💬 {solicitud['contenido'][:70]}{'...' if len(solicitud['contenido']) > 70 else ''}\n"
-            mensaje += "────────────────────\n"
+            # Nombres cortos para mejor visualización
+            usuario_corto = DatabaseManager.acortar_nombre(solicitud['usuario_nombre'], 15)
+            contenido_corto = DatabaseManager.acortar_nombre(solicitud['contenido'], 45)
+            
+            mensaje += f"{estado_icono} `{solicitud['id']}` • {tipo_icono} • 📅 {fecha}\n"
+            mensaje += f"👤 {usuario_corto} • 💬 {contenido_corto}\n"
+            mensaje += "──────────────────\n"
         
-        if len(todas_solicitudes) > 15:
-            mensaje += f"\n... y {len(todas_solicitudes) - 15} solicitudes más\n"
+        if len(todas_solicitudes) > 12:
+            mensaje += f"\n📄 *Mostrando 12 de {len(todas_solicitudes)} solicitudes*\n"
         
         stats = self.solicitudes_db['estadisticas']
         mensaje += (
             f"\n📊 *Estadísticas:*\n"
-            f"📊 Total: {stats['total_solicitudes']}\n"
-            f"⏳ Pendientes: {stats['solicitudes_pendientes']}\n"
+            f"📊 Total: {stats['total_solicitudes']} | "
+            f"⏳ Pendientes: {stats['solicitudes_pendientes']} | "
             f"✅ Completadas: {stats['solicitudes_completadas']}\n\n"
-            f"💡 Usa `/adminrequests PENDIENTE` para filtrar"
+            f"💡 Filtros: `/adminrequests PENDIENTE` • `/adminrequests COMPLETADO`"
         )
         
         await self.enviar_mensaje_largo(update, mensaje, "Markdown", context)
@@ -727,7 +845,7 @@ class TelegramBot:
                         f"📬 *Respuesta a tu solicitud*\n\n"
                         f"🆔 *ID:* `{solicitud_id}`\n"
                         f"✅ *Estado:* Completado\n"
-                        f"💬 *Tu solicitud:* {solicitud['contenido'][:100]}{'...' if len(solicitud['contenido']) > 100 else ''}\n\n"
+                        f"💬 *Tu solicitud:* {DatabaseManager.acortar_nombre(solicitud['contenido'], 80)}\n\n"
                         f"👨‍💼 *Respuesta del administrador:*\n{respuesta}\n\n"
                         f"📊 Usa `/mystatus` para ver todas tus solicitudes"
                     ),
@@ -740,7 +858,7 @@ class TelegramBot:
             await update.message.reply_text("❌ Error al guardar la respuesta.")
 
     # ═══════════════════════════════════════════════════════════════
-    # 🔧 MÉTODOS AUXILIARES
+    # 🔧 MÉTODOS AUXILIARES - MEJORADOS
     # ═══════════════════════════════════════════════════════════════
 
     async def obtener_enlace_descarga(self, file_id: str, context: ContextTypes.DEFAULT_TYPE) -> Optional[str]:
@@ -806,29 +924,103 @@ class TelegramBot:
             except:
                 pass
 
-    async def publicar_en_canal(self, context: ContextTypes.DEFAULT_TYPE, texto: str = None, file_id: str = None):
-        """Publica contenido en el canal configurado"""
+    async def publicar_en_canal(self, context: ContextTypes.DEFAULT_TYPE, texto: str = None, file_id: str = None, file_type: str = None) -> bool:
+        """Publica contenido en el canal configurado - CORREGIDO"""
         try:
-            if file_id:
-                await context.bot.send_document(
-                    chat_id=Config.CANAL_ID, 
-                    document=file_id,
-                    caption=texto,
-                    parse_mode="Markdown"
-                )
+            # Verificar que el canal esté configurado
+            if not Config.CANAL_ID:
+                logger.error("❌ ID del canal no configurado")
+                return False
+            
+            if file_id and file_type:
+                # Limitar caption a 1024 caracteres
+                caption = texto[:1021] + "..." if texto and len(texto) > 1024 else texto
+                
+                # Enviar según el tipo de archivo
+                if file_type == 'photo':
+                    await context.bot.send_photo(
+                        chat_id=Config.CANAL_ID, 
+                        photo=file_id,
+                        caption=caption,
+                        parse_mode="Markdown"
+                    )
+                elif file_type == 'video':
+                    await context.bot.send_video(
+                        chat_id=Config.CANAL_ID, 
+                        video=file_id,
+                        caption=caption,
+                        parse_mode="Markdown"
+                    )
+                elif file_type == 'animation':
+                    await context.bot.send_animation(
+                        chat_id=Config.CANAL_ID, 
+                        animation=file_id,
+                        caption=caption,
+                        parse_mode="Markdown"
+                    )
+                elif file_type == 'audio':
+                    await context.bot.send_audio(
+                        chat_id=Config.CANAL_ID, 
+                        audio=file_id,
+                        caption=caption,
+                        parse_mode="Markdown"
+                    )
+                elif file_type == 'voice':
+                    await context.bot.send_voice(
+                        chat_id=Config.CANAL_ID, 
+                        voice=file_id,
+                        caption=caption,
+                        parse_mode="Markdown"
+                    )
+                else:  # document por defecto
+                    await context.bot.send_document(
+                        chat_id=Config.CANAL_ID, 
+                        document=file_id,
+                        caption=caption,
+                        parse_mode="Markdown"
+                    )
+            elif texto:
+                # Solo texto - dividir si es muy largo
+                if len(texto) > 4000:
+                    chunks = [texto[i:i+4000] for i in range(0, len(texto), 4000)]
+                    for i, chunk in enumerate(chunks):
+                        await context.bot.send_message(
+                            chat_id=Config.CANAL_ID,
+                            text=chunk,
+                            parse_mode="Markdown"
+                        )
+                        if i < len(chunks) - 1:
+                            await asyncio.sleep(1)
+                else:
+                    await context.bot.send_message(
+                        chat_id=Config.CANAL_ID,
+                        text=texto,
+                        parse_mode="Markdown"
+                    )
             else:
-                await context.bot.send_message(
-                    chat_id=Config.CANAL_ID,
-                    text=texto,
-                    parse_mode="Markdown"
-                )
+                logger.error("❌ No hay contenido para publicar")
+                return False
+                
             logger.info("✅ Mensaje enviado al canal exitosamente")
+            return True
+            
         except TelegramError as e:
-            logger.error(f"❌ Error al enviar mensaje al canal: {e}")
-            raise
+            error_type = str(e).lower()
+            if "chat not found" in error_type:
+                logger.error(f"❌ Canal no encontrado (ID: {Config.CANAL_ID})")
+            elif "forbidden" in error_type:
+                logger.error(f"❌ Bot sin permisos en el canal (ID: {Config.CANAL_ID})")
+            elif "bad request" in error_type:
+                logger.error(f"❌ Solicitud incorrecta: {e}")
+            else:
+                logger.error(f"❌ Error de Telegram al enviar al canal: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"❌ Error inesperado al publicar en canal: {e}")
+            return False
 
     # ═══════════════════════════════════════════════════════════════
-    # 🚀 COMANDOS PRINCIPALES
+    # 🚀 COMANDOS PRINCIPALES - MEJORADOS
     # ═══════════════════════════════════════════════════════════════
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -841,16 +1033,20 @@ class TelegramBot:
         # Botones para usuarios regulares
         keyboard.extend([
             [InlineKeyboardButton("🔍 Mis solicitudes", callback_data="my_requests")],
-            [InlineKeyboardButton("📚 Ver estadísticas", callback_data="stats")],
-            [InlineKeyboardButton("ℹ️ Ayuda", callback_data="help")]
+            [InlineKeyboardButton("📚 Estadísticas", callback_data="stats"), 
+             InlineKeyboardButton("ℹ️ Ayuda", callback_data="help")]
         ])
         
-        # Botones adicionales para admin
+        # Botones adicionales para admin en layout compacto
         if self.es_admin(update.effective_user.id):
-            keyboard.insert(0, [InlineKeyboardButton("📋 Lista de archivos", callback_data="list")])
-            keyboard.insert(1, [InlineKeyboardButton("📥 Solicitudes pendientes", callback_data="admin_requests")])
-            keyboard.insert(2, [InlineKeyboardButton("📢 Crear publicación", callback_data="create_post")])
-            keyboard.insert(3, [InlineKeyboardButton("🔧 Ver archivos inválidos", callback_data="invalid")])
+            keyboard.insert(0, [
+                InlineKeyboardButton("📋 Archivos", callback_data="list"),
+                InlineKeyboardButton("📥 Solicitudes", callback_data="admin_requests")
+            ])
+            keyboard.insert(1, [
+                InlineKeyboardButton("📢 Publicar", callback_data="create_post"),
+                InlineKeyboardButton("🔧 Inválidos", callback_data="invalid")
+            ])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -861,26 +1057,25 @@ class TelegramBot:
         
         mensaje = (
             "🤖 *Bot de Gestión de Archivos v1.3*\n\n"
-            "🔍 *Buscar archivos:* `/search <palabra>`\n"
-            "📥 *Solicitar archivo:* `/request <enlace o descripción>`\n"
-            "📊 *Mis solicitudes:* `/mystatus`\n"
-            "📁 *Enviar archivo:* Arrastra y suelta\n"
+            "🔍 *Buscar:* `/search <palabra>`\n"
+            "📥 *Solicitar:* `/request <enlace o descripción>`\n"
+            "📊 *Estado:* `/mystatus`\n"
+            "📁 *Enviar:* Arrastra cualquier archivo\n"
         )
         
         # Comandos adicionales para admin
         if self.es_admin(update.effective_user.id):
-            mensaje += "📢 *Crear publicación:* `/post`\n"
+            mensaje += "📢 *Publicar:* `/post`\n"
         
         mensaje += (
-            f"\n👥 *Rol:* {'Administrador' if self.es_admin(update.effective_user.id) else 'Usuario'}\n"
-            f"📁 *Archivos almacenados:* {total_archivos}\n"
-            f"📋 *Total solicitudes:* {total_solicitudes}\n"
+            f"\n👥 *Rol:* {'🔧 Administrador' if self.es_admin(update.effective_user.id) else '👤 Usuario'}\n"
+            f"📁 *Archivos:* {total_archivos} | 📋 *Solicitudes:* {total_solicitudes}\n"
         )
         
         if self.es_admin(update.effective_user.id) and solicitudes_pendientes > 0:
-            mensaje += f"🔔 *Solicitudes pendientes:* {solicitudes_pendientes}\n"
+            mensaje += f"🔔 *Pendientes:* {solicitudes_pendientes}\n"
         
-        mensaje += "\n💡 Usa los botones para navegar"
+        mensaje += "\n💡 Usa los botones para navegar rápidamente"
         
         await update.message.reply_text(
             mensaje,
@@ -949,7 +1144,7 @@ class TelegramBot:
                 nombre_original = palabra
                 tamaño_mb = 0
             
-            # Icono de estado
+            # Icono de estado y nombres cortos
             if enlace.startswith("file_id:"):
                 estado_icono = "✅"
             elif enlace == 'ENLACE_INVALIDO_MIGRAR':
@@ -957,36 +1152,48 @@ class TelegramBot:
             else:
                 estado_icono = "🔗"
             
-            mensaje += f"{estado_icono} *{i}. 📁 {nombre_original}*\n"
-            mensaje += f"🔑 `{palabra}`\n"
+            nombre_corto = DatabaseManager.acortar_nombre(nombre_original, 30)
+            clave_corta = DatabaseManager.acortar_nombre(palabra, 25)
             
+            mensaje += f"{estado_icono} *{i}. {nombre_corto}*\n"
+            mensaje += f"🔑 `{clave_corta}`"
+            
+            # Información adicional en línea
+            info_extra = []
+            if fecha:
+                info_extra.append(f"📅 {fecha}")
+            if tamaño_mb > 0:
+                info_extra.append(f"💾 {tamaño_mb:.1f}MB")
+            if relevancia < 100:
+                info_extra.append(f"🎯 {relevancia:.0f}%")
+            
+            if info_extra:
+                mensaje += f" • {' • '.join(info_extra)}"
+            mensaje += "\n"
+            
+            # Enlace de descarga
             if enlace.startswith("file_id:"):
                 file_id = enlace.replace("file_id:", "")
                 enlace_descarga = await self.obtener_enlace_descarga(file_id, context)
                 if enlace_descarga:
-                    mensaje += f"📎 [⬇️ Descargar archivo]({enlace_descarga})\n"
+                    mensaje += f"📎 [⬇️ Descargar]({enlace_descarga})\n"
                 else:
-                    mensaje += "📎 Archivo disponible (contacta admin si hay problemas)\n"
+                    mensaje += "📎 Disponible (contacta admin si hay problemas)\n"
             elif enlace == 'ENLACE_INVALIDO_MIGRAR':
-                mensaje += "⚠️ Archivo requiere reenvío\n"
+                mensaje += "⚠️ Requiere reenvío\n"
             elif enlace.startswith("http"):
                 mensaje += f"🔗 [🌐 Enlace directo]({enlace})\n"
             else:
-                mensaje += f"🔗 {enlace}\n"
+                mensaje += f"🔗 {DatabaseManager.acortar_nombre(enlace, 40)}\n"
             
-            if fecha:
-                mensaje += f"📅 {fecha}"
-            if tamaño_mb > 0:
-                mensaje += f" • 💾 {tamaño_mb:.1f} MB"
-            mensaje += f" • 🎯 {relevancia:.1f}%\n"
-            mensaje += "─────────────────────\n"
+            mensaje += "──────────────────\n"
 
-        mensaje += f"\n💡 ¿No encontraste lo que buscas? Usa `/request {texto}`"
+        mensaje += f"\n💡 ¿No encontraste lo que buscas? `/request {texto}`"
 
         await self.enviar_mensaje_largo(update, mensaje, "Markdown", context)
 
     async def list_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Comando /list mejorado para mostrar archivos (admin)"""
+        """Comando /list MEJORADO con diseño compacto y ordenado"""
         if not self.es_admin(update.effective_user.id):
             await update.message.reply_text("🚫 No tienes permiso para usar este comando.")
             return
@@ -997,15 +1204,26 @@ class TelegramBot:
             await update.message.reply_text("📁 No hay archivos almacenados en la base de datos.")
             return
 
-        # Filtros por estado si se especifica
-        filtro = context.args[0].upper() if context.args and context.args[0].upper() in ['VALIDOS', 'INVALIDOS', 'ANTIGUOS'] else None
+        # Filtros mejorados
+        filtro = None
+        if context.args:
+            arg = context.args[0].upper()
+            if arg in ['VALIDOS', 'V']:
+                filtro = 'VALIDOS'
+            elif arg in ['INVALIDOS', 'I']:
+                filtro = 'INVALIDOS'
+            elif arg in ['ANTIGUOS', 'A']:
+                filtro = 'ANTIGUOS'
         
-        archivos_ordenados = []
+        archivos_procesados = []
+        contadores = {"VALIDO": 0, "INVALIDO": 0, "ANTIGUO": 0}
+        
         for clave, info in archivos.items():
             if isinstance(info, dict):
                 fecha = info.get('fecha_agregado', '1900-01-01T00:00:00')
                 nombre_original = info.get('nombre_original', clave)
                 enlace = info.get('enlace', '')
+                tamaño = info.get('tamaño', 0)
                 
                 if enlace.startswith('file_id:'):
                     estado = "VALIDO"
@@ -1015,9 +1233,11 @@ class TelegramBot:
                     estado_icono = "⚠️"
                 else:
                     estado = "ANTIGUO"
-                    estado_icono = "❓"
-                    
-                # Aplicar filtro si existe
+                    estado_icono = "🔗"
+                
+                contadores[estado] += 1
+                
+                # Aplicar filtro
                 if filtro and not (
                     (filtro == 'VALIDOS' and estado == 'VALIDO') or
                     (filtro == 'INVALIDOS' and estado == 'INVALIDO') or
@@ -1025,43 +1245,72 @@ class TelegramBot:
                 ):
                     continue
                     
-                archivos_ordenados.append((fecha, clave, nombre_original, estado_icono, estado))
+                archivos_procesados.append({
+                    'fecha': fecha,
+                    'clave': clave,
+                    'nombre': nombre_original,
+                    'icono': estado_icono,
+                    'estado': estado,
+                    'tamaño': tamaño
+                })
             else:
+                contadores["ANTIGUO"] += 1
                 if filtro and filtro != 'ANTIGUOS':
                     continue
-                archivos_ordenados.append(('1900-01-01T00:00:00', clave, clave, "❓", "ANTIGUO"))
+                archivos_procesados.append({
+                    'fecha': '1900-01-01T00:00:00',
+                    'clave': clave,
+                    'nombre': clave,
+                    'icono': "🔗",
+                    'estado': "ANTIGUO",
+                    'tamaño': 0
+                })
         
-        archivos_ordenados.sort(key=lambda x: x[0], reverse=True)
+        # Ordenar por fecha (más recientes primero)
+        archivos_procesados.sort(key=lambda x: x['fecha'], reverse=True)
         
-        filtro_texto = f" - {filtro}S" if filtro else ""
-        mensaje = f"📋 *Lista de archivos{filtro_texto} ({len(archivos_ordenados)}):*\n\n"
+        # Preparar mensaje con diseño mejorado
+        filtro_texto = f" {filtro}S" if filtro else ""
+        mensaje = f"📋 *Archivos{filtro_texto} ({len(archivos_procesados)} de {len(archivos)})*\n\n"
         
-        # Contadores por estado
-        contadores = {"VALIDO": 0, "INVALIDO": 0, "ANTIGUO": 0}
+        # Mostrar estadísticas compactas
+        mensaje += (
+            f"📊 ✅ {contadores['VALIDO']} • ⚠️ {contadores['INVALIDO']} • 🔗 {contadores['ANTIGUO']}\n\n"
+        )
         
-        for i, (fecha, clave, nombre_original, estado_icono, estado) in enumerate(archivos_ordenados[:20], 1):
-            contadores[estado] += 1
-            fecha_corta = fecha[:10] if len(fecha) >= 10 else "Sin fecha"
+        # Lista de archivos con formato compacto y elegante
+        for i, archivo in enumerate(archivos_procesados[:15], 1):
+            nombre_corto = DatabaseManager.acortar_nombre(archivo['nombre'], 28)
+            clave_corta = DatabaseManager.acortar_nombre(archivo['clave'], 20)
+            fecha_corta = archivo['fecha'][:10] if len(archivo['fecha']) >= 10 else "Sin fecha"
+            tamaño_mb = archivo['tamaño'] / 1024 / 1024 if archivo['tamaño'] > 0 else 0
             
-            mensaje += f"{estado_icono} *{i}. {nombre_original}*\n"
-            mensaje += f"🔑 `{clave}` • 📅 {fecha_corta}\n"
-            mensaje += "─────────────────────\n"
+            mensaje += f"{archivo['icono']} *{i:02d}.* {nombre_corto}\n"
+            mensaje += f"     🔑 `{clave_corta}`"
+            
+            # Información adicional en una sola línea
+            info_items = [f"📅 {fecha_corta}"]
+            if tamaño_mb > 0:
+                if tamaño_mb >= 1024:
+                    info_items.append(f"💾 {tamaño_mb/1024:.1f}GB")
+                else:
+                    info_items.append(f"💾 {tamaño_mb:.1f}MB")
+            
+            mensaje += f" • {' • '.join(info_items)}\n"
+            mensaje += "──────────────────\n"
         
-        if len(archivos_ordenados) > 20:
-            mensaje += f"\n... y {len(archivos_ordenados) - 20} archivos más\n"
+        if len(archivos_procesados) > 15:
+            mensaje += f"\n📄 *Mostrando 15 de {len(archivos_procesados)} archivos*\n"
         
         mensaje += (
-            f"\n📊 *Resumen por estado:*\n"
-            f"✅ Válidos: {contadores['VALIDO']}\n"
-            f"⚠️ Inválidos: {contadores['INVALIDO']}\n"
-            f"❓ Antiguos: {contadores['ANTIGUO']}\n\n"
-            f"💡 Filtros: `/list VALIDOS` `/list INVALIDOS` `/list ANTIGUOS`"
+            f"\n💡 *Filtros rápidos:*\n"
+            f"`/list V` (válidos) • `/list I` (inválidos) • `/list A` (antiguos)"
         )
 
         await self.enviar_mensaje_largo(update, mensaje, "Markdown", context)
 
     async def recibir_archivo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Procesar archivos enviados - mejorado"""
+        """Procesar archivos enviados - MEJORADO CON PUBLICACIÓN CORREGIDA"""
         documento = update.message.document
         if not documento:
             return
@@ -1109,30 +1358,46 @@ class TelegramBot:
         if self.db_manager.guardar_db(self.db):
             tamaño_mb = tamaño / 1024 / 1024
             
-            # Mensaje de confirmación mejorado
+            # Mensaje de confirmación mejorado y compacto
             await update.message.reply_text(
                 f"✅ *Archivo guardado exitosamente*\n\n"
-                f"📁 *Nombre:* {nombre_archivo}\n"
-                f"🔑 *Clave:* `{clave}`\n"
-                f"💾 *Tamaño:* {tamaño_mb:.2f} MB\n"
-                f"📅 *Fecha:* {datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n"
-                f"🔍 Busca con: `/search {clave.split('_')[0]}`\n"
-                f"🆔 File ID: `{file_id}`",
+                f"📁 {DatabaseManager.acortar_nombre(nombre_archivo, 35)}\n"
+                f"🔑 `{clave}`\n"
+                f"💾 {tamaño_mb:.2f} MB • 📅 {datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n"
+                f"🔍 Busca con: `/search {clave.split('_')[0]}`",
                 parse_mode="Markdown"
             )
 
-            # Publicar en canal con información adicional
+            # Publicar en canal con formato mejorado y manejo de errores
             try:
+                nombre_display = DatabaseManager.acortar_nombre(nombre_archivo, 40)
+                
                 caption = (
-                    f"📂 *Nuevo archivo agregado*\n\n"
-                    f"📁 *Nombre:* {nombre_archivo}\n"
-                    f"🔑 *Clave de búsqueda:* `{clave}`\n"
-                    f"💾 *Tamaño:* {tamaño_mb:.2f} MB\n"
-                    f"👤 *Subido por:* {update.effective_user.first_name}\n"
-                    f"📅 *Fecha:* {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+                    f"📂 *Nuevo archivo disponible*\n\n"
+                    f"📁 `{nombre_display}`\n"
+                    f"🔍 *Buscar con:* `{clave.split('_')[0]}`\n"
+                    f"💾 {tamaño_mb:.1f} MB • 👤 {update.effective_user.first_name}\n"
+                    f"📅 {datetime.now().strftime('%d/%m/%Y %H:%M')}"
                 )
                 
-                await self.publicar_en_canal(context, caption, file_id)
+                # Usar el método corregido de publicación
+                success = await self.publicar_en_canal(
+                    context, 
+                    texto=caption, 
+                    file_id=file_id, 
+                    file_type='document'
+                )
+                
+                if not success:
+                    await update.message.reply_text(
+                        f"⚠️ *Archivo guardado correctamente*\n"
+                        f"❌ No se pudo publicar en el canal\n\n"
+                        f"🔍 *Posibles causas:*\n"
+                        f"• Bot sin permisos de administrador\n"
+                        f"• Canal ID incorrecto: `{Config.CANAL_ID}`\n"
+                        f"• Canal privado sin acceso\n\n"
+                        f"💡 Contacta al administrador del canal"
+                    )
                 
             except Exception as e:
                 logger.error(f"❌ Error al publicar en canal: {e}")
@@ -1144,7 +1409,7 @@ class TelegramBot:
             await update.message.reply_text("❌ Error al guardar el archivo en la base de datos.")
 
     async def show_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None):
-        """Mostrar estadísticas completas del bot"""
+        """Mostrar estadísticas completas del bot - DISEÑO MEJORADO"""
         db_stats = self.db['estadisticas']
         req_stats = self.solicitudes_db['estadisticas']
         total_archivos = len(self.db['archivos'])
@@ -1169,27 +1434,24 @@ class TelegramBot:
             else:
                 archivos_antiguos += 1
         
+        tamaño_total_gb = tamaño_total / 1024 / 1024 / 1024
         tamaño_total_mb = tamaño_total / 1024 / 1024
         
+        # Formato compacto y elegante
         mensaje = (
-            "📊 *Estadísticas Completas del Bot*\n\n"
-            "🗄️ *ARCHIVOS:*\n"
-            f"📁 Total: {total_archivos}\n"
-            f"✅ Válidos: {archivos_validos}\n"
-            f"⚠️ Requieren reenvío: {archivos_invalidos}\n"
-            f"❓ Formato antiguo: {archivos_antiguos}\n"
-            f"💾 Tamaño total: {tamaño_total_mb:.1f} MB\n\n"
-            "📥 *SOLICITUDES:*\n"
-            f"📋 Total enviadas: {req_stats['total_solicitudes']}\n"
-            f"⏳ Pendientes: {req_stats['solicitudes_pendientes']}\n"
-            f"✅ Completadas: {req_stats['solicitudes_completadas']}\n"
-            f"❌ Rechazadas: {req_stats['total_solicitudes'] - req_stats['solicitudes_pendientes'] - req_stats['solicitudes_completadas']}\n\n"
-            "🔍 *BÚSQUEDAS:*\n"
-            f"🔍 Total realizadas: {db_stats['total_busquedas']}\n"
-            f"📤 Archivos agregados: {db_stats['archivos_agregados']}\n\n"
-            f"🤖 *SISTEMA:*\n"
-            f"📅 Base de datos: v{self.db.get('version', '1.0')}\n"
-            f"⏰ Última actualización: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+            "📊 *Estadísticas del Bot v1.3*\n"
+            "═══════════════════════════\n\n"
+            f"🗄️ *ARCHIVOS* ({total_archivos} total)\n"
+            f"✅ Válidos: {archivos_validos} • ⚠️ Inválidos: {archivos_invalidos} • 🔗 Antiguos: {archivos_antiguos}\n"
+            f"💾 Espacio: {tamaño_total_gb:.2f} GB ({tamaño_total_mb:.1f} MB)\n\n"
+            f"📥 *SOLICITUDES*\n"
+            f"📋 Total: {req_stats['total_solicitudes']} • ⏳ Pendientes: {req_stats['solicitudes_pendientes']}\n"
+            f"✅ Completadas: {req_stats['solicitudes_completadas']} • ❌ Rechazadas: {req_stats['total_solicitudes'] - req_stats['solicitudes_pendientes'] - req_stats['solicitudes_completadas']}\n\n"
+            f"🔍 *ACTIVIDAD*\n"
+            f"🔍 Búsquedas: {db_stats['total_busquedas']} • 📤 Archivos agregados: {db_stats['archivos_agregados']}\n\n"
+            f"🤖 *SISTEMA*\n"
+            f"📅 Versión: v{self.db.get('version', '1.0')} • ⏰ {datetime.now().strftime('%d/%m/%Y %H:%M')}\n"
+            f"📺 Canal: `{Config.CANAL_ID}`"
         )
         
         if hasattr(update, 'callback_query') and update.callback_query:
@@ -1198,48 +1460,42 @@ class TelegramBot:
             await update.message.reply_text(mensaje, parse_mode="Markdown")
 
     async def show_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None):
-        """Mostrar ayuda completa del bot"""
+        """Mostrar ayuda completa del bot - DISEÑO MEJORADO"""
         mensaje = (
-            "ℹ️ *Guía Completa del Bot v1.3*\n\n"
-            "🔍 *BÚSQUEDA DE ARCHIVOS:*\n"
-            "• `/search <palabra>` - Buscar archivos\n"
-            "• Ejemplo: `/search xiaomi redmi`\n\n"
-            "📥 *SOLICITAR ARCHIVOS:*\n"
-            "• `/request <enlace>` - Con enlace directo\n"
-            "• `/request <descripción>` - Describir archivo\n"
-            "• `/mystatus` - Ver mis solicitudes\n\n"
-            "📤 *ENVIAR ARCHIVOS:*\n"
-            "• Arrastra y suelta cualquier archivo\n"
-            "• Se asignará automáticamente una clave\n"
-            "• Se publicará en el canal\n\n"
-            "🎯 *COMANDOS ÚTILES:*\n"
-            "• `/start` - Menú principal\n"
-            "• Botones interactivos para navegación\n\n"
+            "ℹ️ *Guía del Bot v1.3*\n"
+            "═══════════════════════\n\n"
+            "🔍 *BÚSQUEDA*\n"
+            "`/search <palabra>` - Buscar archivos\n"
+            "Ejemplo: `/search xiaomi redmi`\n\n"
+            "📥 *SOLICITUDES*\n"
+            "`/request <enlace|descripción>` - Solicitar archivo\n"
+            "`/mystatus` - Ver mis solicitudes\n\n"
+            "📤 *ENVÍO*\n"
+            "Arrastra cualquier archivo al chat\n"
+            "Se publica automáticamente en el canal\n\n"
         )
         
+        # Comandos de admin en sección separada
         if self.es_admin(update.effective_user.id if hasattr(update, 'effective_user') else (update.callback_query.from_user.id if hasattr(update, 'callback_query') else 0)):
             mensaje += (
-                "👨‍💼 *COMANDOS DE ADMINISTRADOR:*\n"
-                "• `/list [filtro]` - Lista archivos\n"
-                "• `/adminrequests [estado]` - Ver solicitudes\n"
-                "• `/respond <ID> <respuesta>` - Responder solicitud\n"
-                "• `/delete <clave>` - Eliminar archivo\n"
-                "• `/fixfiles` - Ver archivos inválidos\n"
-                "• `/post` - Crear publicación en el canal\n\n"
+                "👨‍💼 *ADMINISTRADOR*\n"
+                "`/list [V|I|A]` - Lista archivos (Válidos|Inválidos|Antiguos)\n"
+                "`/adminrequests [estado]` - Gestionar solicitudes\n"
+                "`/respond <ID> <respuesta>` - Responder solicitud\n"
+                "`/delete <clave>` - Eliminar archivo\n"
+                "`/fixfiles` - Ver archivos inválidos\n"
+                "`/post` - Crear publicación en canal\n\n"
             )
         
         mensaje += (
-            "📋 *FORMATOS SOPORTADOS:*\n"
-            "• Documentos (PDF, DOC, etc.)\n"
-            "• Imágenes (JPG, PNG, etc.)\n"
-            "• Videos y audio\n"
-            "• Archivos comprimidos\n"
-            "• ROMs y firmwares\n\n"
-            "💡 *CONSEJOS:*\n"
+            "📋 *FORMATOS SOPORTADOS*\n"
+            "🖼️ Imágenes • 🎥 Videos • 📄 Documentos\n"
+            "🎵 Audio • 📦 Comprimidos • 📱 ROMs\n\n"
+            "💡 *CONSEJOS*\n"
             "• Usa palabras clave específicas\n"
-            "• Las búsquedas no distinguen mayúsculas\n"
-            "• Solicita archivos si no los encuentras\n"
-            "• Revisa regularmente tus solicitudes"
+            "• Búsquedas no distinguen mayúsculas\n"
+            "• Solicita si no encuentras algo\n"
+            "• Revisa `/mystatus` regularmente"
         )
         
         if hasattr(update, 'callback_query') and update.callback_query:
@@ -1248,7 +1504,7 @@ class TelegramBot:
             await update.message.reply_text(mensaje, parse_mode="Markdown")
 
     # ═══════════════════════════════════════════════════════════════
-    # 🎛️ MANEJADOR DE BOTONES
+    # 🎛️ MANEJADOR DE BOTONES - MEJORADO
     # ═══════════════════════════════════════════════════════════════
 
     async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1299,7 +1555,7 @@ class TelegramBot:
         """Maneja el botón de crear publicación"""
         keyboard = [
             [InlineKeyboardButton("📝 Solo texto", callback_data="post_text_only")],
-            [InlineKeyboardButton("📷 Con imagen/documento", callback_data="post_with_media")],
+            [InlineKeyboardButton("📷 Con multimedia", callback_data="post_with_media")],
             [InlineKeyboardButton("❌ Cancelar", callback_data="post_cancel")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1315,7 +1571,7 @@ class TelegramBot:
         )
 
     async def handle_my_requests_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Maneja el botón de mis solicitudes"""
+        """Maneja el botón de mis solicitudes - DISEÑO MEJORADO"""
         user_id = update.callback_query.from_user.id
         
         mis_solicitudes = [
@@ -1325,8 +1581,8 @@ class TelegramBot:
         
         if not mis_solicitudes:
             await update.callback_query.edit_message_text(
-                "📭 *No tienes solicitudes registradas*\n\n"
-                "💡 Usa `/request <enlace o descripción>` para solicitar archivos.\n\n"
+                "📭 *No tienes solicitudes*\n\n"
+                "💡 Usa `/request <enlace o descripción>`\n\n"
                 "*Ejemplos:*\n"
                 "• `/request https://ejemplo.com/archivo.zip`\n"
                 "• `/request ROM para Xiaomi Mi 11`",
@@ -1334,41 +1590,41 @@ class TelegramBot:
             )
             return
         
-        # Mostrar resumen de solicitudes
+        # Estadísticas rápidas
         mis_solicitudes.sort(key=lambda x: x['fecha_creacion'], reverse=True)
-        
         pendientes = sum(1 for s in mis_solicitudes if s['estado'] == 'PENDIENTE')
         completadas = sum(1 for s in mis_solicitudes if s['estado'] == 'COMPLETADO')
         rechazadas = sum(1 for s in mis_solicitudes if s['estado'] == 'RECHAZADO')
         
         mensaje = (
-            f"📊 *Resumen de tus solicitudes ({len(mis_solicitudes)}):*\n\n"
-            f"⏳ *Pendientes:* {pendientes}\n"
-            f"✅ *Completadas:* {completadas}\n"
-            f"❌ *Rechazadas:* {rechazadas}\n\n"
+            f"📊 *Tus Solicitudes ({len(mis_solicitudes)})*\n"
+            f"⏳ {pendientes} • ✅ {completadas} • ❌ {rechazadas}\n\n"
         )
         
-        if mis_solicitudes:
-            mensaje += "*🕒 Últimas 5 solicitudes:*\n\n"
+        # Lista compacta de solicitudes
+        for i, sol in enumerate(mis_solicitudes[:8], 1):
+            estado_icono = Config.REQUEST_STATES.get(sol['estado'], '❓')
+            fecha = datetime.fromisoformat(sol['fecha_creacion']).strftime('%d/%m')
+            contenido_corto = DatabaseManager.acortar_nombre(sol['contenido'], 45)
             
-            for i, sol in enumerate(mis_solicitudes[:5], 1):
-                estado_icono = Config.REQUEST_STATES.get(sol['estado'], '❓')
-                fecha = datetime.fromisoformat(sol['fecha_creacion']).strftime('%d/%m')
-                
-                mensaje += f"{estado_icono} *{sol['id']}* • {fecha}\n"
-                mensaje += f"💬 {sol['contenido'][:60]}{'...' if len(sol['contenido']) > 60 else ''}\n"
-                
-                if sol.get('respuesta_admin'):
-                    mensaje += f"👨‍💼 {sol['respuesta_admin'][:50]}{'...' if len(sol['respuesta_admin']) > 50 else ''}\n"
-                
-                mensaje += "─────────────────────\n"
+            mensaje += f"{estado_icono} `{sol['id']}` • 📅 {fecha}\n"
+            mensaje += f"💬 {contenido_corto}\n"
+            
+            if sol.get('respuesta_admin'):
+                respuesta_corta = DatabaseManager.acortar_nombre(sol['respuesta_admin'], 40)
+                mensaje += f"👨‍💼 {respuesta_corta}\n"
+            
+            mensaje += "──────────────────\n"
         
-        mensaje += "\n💡 Usa `/mystatus` para ver detalles completos"
+        if len(mis_solicitudes) > 8:
+            mensaje += f"\n📄 *Mostrando 8 de {len(mis_solicitudes)} solicitudes*\n"
+        
+        mensaje += "\n💡 `/mystatus` para ver detalles completos"
         
         await update.callback_query.edit_message_text(mensaje, parse_mode="Markdown")
 
     async def handle_list_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Maneja el botón de lista de archivos (admin)"""
+        """Maneja el botón de lista de archivos (admin) - DISEÑO MEJORADO"""
         archivos = self.db['archivos']
         
         if not archivos:
@@ -1382,35 +1638,59 @@ class TelegramBot:
                        if isinstance(info, dict) and info.get('enlace') == 'ENLACE_INVALIDO_MIGRAR')
         antiguos = len(archivos) - validos - invalidos
         
-        # Obtener archivos más recientes
+        # Obtener archivos más recientes con información completa
         archivos_recientes = []
+        tamaño_total = 0
+        
         for clave, info in archivos.items():
             if isinstance(info, dict):
                 fecha = info.get('fecha_agregado', '1900-01-01T00:00:00')
                 nombre = info.get('nombre_original', clave)
-                archivos_recientes.append((fecha, nombre, clave))
+                tamaño = info.get('tamaño', 0)
+                enlace = info.get('enlace', '')
+                
+                tamaño_total += tamaño
+                
+                estado = "✅" if enlace.startswith('file_id:') else ("⚠️" if enlace == 'ENLACE_INVALIDO_MIGRAR' else "🔗")
+                
+                archivos_recientes.append((fecha, nombre, clave, tamaño, estado))
         
         archivos_recientes.sort(key=lambda x: x[0], reverse=True)
+        tamaño_total_gb = tamaño_total / 1024 / 1024 / 1024
         
         mensaje = (
-            f"📋 *Resumen de archivos ({len(archivos)} total):*\n\n"
-            f"✅ *Válidos:* {validos}\n"
-            f"⚠️ *Inválidos:* {invalidos}\n"
-            f"❓ *Formato antiguo:* {antiguos}\n\n"
+            f"📋 *Resumen de Archivos*\n"
+            f"═══════════════════════\n\n"
+            f"📊 *Total:* {len(archivos)} archivos\n"
+            f"✅ {validos} • ⚠️ {invalidos} • 🔗 {antiguos}\n"
+            f"💾 *Espacio:* {tamaño_total_gb:.2f} GB\n\n"
         )
         
         if archivos_recientes:
-            mensaje += "*📁 Últimos 8 archivos:*\n\n"
-            for i, (fecha, nombre, clave) in enumerate(archivos_recientes[:8], 1):
+            mensaje += "*📁 Últimos 10 archivos:*\n\n"
+            for i, (fecha, nombre, clave, tamaño, estado) in enumerate(archivos_recientes[:10], 1):
                 fecha_corta = fecha[:10] if len(fecha) >= 10 else "Sin fecha"
-                mensaje += f"{i}. *{nombre}*\n   `{clave}` • 📅 {fecha_corta}\n"
+                nombre_corto = DatabaseManager.acortar_nombre(nombre, 25)
+                clave_corta = DatabaseManager.acortar_nombre(clave, 20)
+                tamaño_mb = tamaño / 1024 / 1024 if tamaño > 0 else 0
+                
+                mensaje += f"{estado} *{i:02d}.* {nombre_corto}\n"
+                mensaje += f"     🔑 `{clave_corta}` • 📅 {fecha_corta}"
+                
+                if tamaño_mb > 0:
+                    if tamaño_mb >= 1024:
+                        mensaje += f" • 💾 {tamaño_mb/1024:.1f}GB"
+                    else:
+                        mensaje += f" • 💾 {tamaño_mb:.1f}MB"
+                
+                mensaje += "\n──────────────────\n"
         
-        mensaje += "\n💡 Usa `/list` para ver la lista completa"
+        mensaje += "\n💡 `/list V` válidos • `/list I` inválidos • `/list A` antiguos"
         
         await update.callback_query.edit_message_text(mensaje, parse_mode="Markdown")
 
     async def handle_admin_requests_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Maneja el botón de solicitudes de admin"""
+        """Maneja el botón de solicitudes de admin - DISEÑO MEJORADO"""
         todas_solicitudes = list(self.solicitudes_db['solicitudes'].values())
         
         if not todas_solicitudes:
@@ -1419,62 +1699,83 @@ class TelegramBot:
 
         # Filtrar solicitudes pendientes
         pendientes = [s for s in todas_solicitudes if s['estado'] == 'PENDIENTE']
+        completadas = [s for s in todas_solicitudes if s['estado'] == 'COMPLETADO']
         
-        mensaje = f"📥 *Solicitudes pendientes ({len(pendientes)}):*\n\n"
+        mensaje = (
+            f"📥 *Panel de Solicitudes*\n"
+            f"═══════════════════════\n\n"
+            f"⏳ *Pendientes:* {len(pendientes)}\n"
+            f"✅ *Completadas:* {len(completadas)}\n"
+            f"📊 *Total histórico:* {len(todas_solicitudes)}\n\n"
+        )
         
-        if not pendientes:
-            mensaje += "✅ No hay solicitudes pendientes\n\n"
-        else:
-            for i, sol in enumerate(pendientes[:8], 1):
+        if pendientes:
+            mensaje += "*🔔 Solicitudes pendientes:*\n\n"
+            for i, sol in enumerate(pendientes[:6], 1):
                 tipo_icono = "🔗" if sol['tipo'] == "ENLACE" else "📝"
                 fecha = datetime.fromisoformat(sol['fecha_creacion']).strftime('%d/%m')
+                usuario_corto = DatabaseManager.acortar_nombre(sol['usuario_nombre'], 12)
+                contenido_corto = DatabaseManager.acortar_nombre(sol['contenido'], 35)
                 
-                mensaje += f"{tipo_icono} *{sol['id']}* • 📅 {fecha}\n"
-                mensaje += f"👤 {sol['usuario_nombre']}\n"
-                mensaje += f"💬 {sol['contenido'][:70]}{'...' if len(sol['contenido']) > 70 else ''}\n"
-                mensaje += "─────────────────────\n"
+                mensaje += f"{tipo_icono} `{sol['id']}` • 📅 {fecha}\n"
+                mensaje += f"👤 {usuario_corto} • 💬 {contenido_corto}\n"
+                mensaje += "──────────────────\n"
+            
+            if len(pendientes) > 6:
+                mensaje += f"\n📄 *Mostrando 6 de {len(pendientes)} pendientes*\n"
+        else:
+            mensaje += "✅ *¡No hay solicitudes pendientes!*\n"
         
-        stats = self.solicitudes_db['estadisticas']
-        mensaje += (
-            f"📊 *Estadísticas generales:*\n"
-            f"📋 Total: {stats['total_solicitudes']}\n"
-            f"✅ Completadas: {stats['solicitudes_completadas']}\n\n"
-            f"💡 Usa `/adminrequests` para ver todas las solicitudes"
-        )
+        mensaje += f"\n💡 `/adminrequests` para vista completa • `/adminrequests PENDIENTE` para filtrar"
         
         await update.callback_query.edit_message_text(mensaje, parse_mode="Markdown")
 
     async def handle_invalid_files_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Maneja el botón de archivos inválidos"""
+        """Maneja el botón de archivos inválidos - DISEÑO MEJORADO"""
         archivos_invalidos = []
         for clave, info in self.db['archivos'].items():
             if isinstance(info, dict) and info.get('enlace') == 'ENLACE_INVALIDO_MIGRAR':
                 archivos_invalidos.append((clave, info))
 
         if not archivos_invalidos:
-            await update.callback_query.edit_message_text("✅ No hay archivos con enlaces inválidos.")
+            await update.callback_query.edit_message_text(
+                "✅ *¡Excelente!*\n\n"
+                "No hay archivos con enlaces inválidos.\n"
+                "Todos los enlaces están funcionando correctamente."
+            )
             return
 
-        mensaje = f"🚨 *Archivos inválidos ({len(archivos_invalidos)}):*\n\n"
-        
-        for i, (clave, info) in enumerate(archivos_invalidos[:10], 1):
-            nombre = info.get('nombre_original', clave)
-            fecha = info.get('fecha_agregado', '')[:10] if info.get('fecha_agregado') else 'Sin fecha'
-            
-            mensaje += f"⚠️ *{i}. {nombre}*\n"
-            mensaje += f"🔑 `{clave}` • 📅 {fecha}\n"
-            mensaje += "─────────────────────\n"
-        
-        if len(archivos_invalidos) > 10:
-            mensaje += f"\n... y {len(archivos_invalidos) - 10} archivos más\n"
-        
-        mensaje += (
-            "\n💡 *Para solucionarlo:*\n"
-            "1. Reenvía los archivos al bot\n"
-            "2. Usa `/delete <clave>` para eliminar inválidos\n"
-            "3. Usa `/fixfiles` para ver detalles completos"
+        mensaje = (
+            f"🚨 *Archivos Inválidos*\n"
+            f"═══════════════════════\n\n"
+            f"⚠️ *Total:* {len(archivos_invalidos)} archivos\n"
+            f"🔧 *Acción requerida:* Reenvío manual\n\n"
         )
         
+        for i, (clave, info) in enumerate(archivos_invalidos[:12], 1):
+            nombre = info.get('nombre_original', clave)
+            fecha = info.get('fecha_agregado', '')[:10] if info.get('fecha_agregado') else 'S/F'
+            agregado_por = info.get('agregado_por_nombre', 'Desc.')
+            
+            nombre_corto = DatabaseManager.acortar_nombre(nombre, 25)
+            clave_corta = DatabaseManager.acortar_nombre(clave, 18)
+            usuario_corto = DatabaseManager.acortar_nombre(agregado_por, 10)
+            
+            mensaje += f"⚠️ *{i:02d}.* {nombre_corto}\n"
+            mensaje += f"     🔑 `{clave_corta}` • 📅 {fecha} • 👤 {usuario_corto}\n"
+            mensaje += "──────────────────\n"
+
+        if len(archivos_invalidos) > 12:
+            mensaje += f"\n📄 *Mostrando 12 de {len(archivos_invalidos)} archivos*\n"
+
+        mensaje += (
+            f"\n🔧 *Soluciones:*\n"
+            f"1. 🔄 Reenvía archivos originales\n"
+            f"2. 🗑️ `/delete <clave>` para eliminar\n"
+            f"3. 📞 Contacta usuarios para reenvío\n"
+            f"4. 🔍 `/fixfiles` para lista completa"
+        )
+
         await update.callback_query.edit_message_text(mensaje, parse_mode="Markdown")
 
     async def handle_approve_request(self, update: Update, context: ContextTypes.DEFAULT_TYPE, data: str):
@@ -1492,14 +1793,15 @@ class TelegramBot:
         solicitud['fecha_actualizacion'] = datetime.now().isoformat()
         
         if self.db_manager.guardar_solicitudes(self.solicitudes_db):
-            # Actualizar el mensaje con nueva información
+            # Mensaje compacto de confirmación
+            contenido_corto = DatabaseManager.acortar_nombre(solicitud['contenido'], 80)
+            
             mensaje = (
                 f"🔄 *Solicitud en proceso*\n\n"
-                f"🆔 *ID:* `{solicitud_id}`\n"
-                f"👤 *Usuario:* {solicitud['usuario_nombre']}\n"
-                f"📝 *Contenido:* {solicitud['contenido'][:100]}{'...' if len(solicitud['contenido']) > 100 else ''}\n\n"
-                f"✅ Estado cambiado a: *PROCESANDO*\n\n"
-                f"💡 Usa `/respond {solicitud_id} <mensaje>` para completar la solicitud"
+                f"🆔 `{solicitud_id}` • 👤 {solicitud['usuario_nombre']}\n"
+                f"💬 {contenido_corto}\n\n"
+                f"✅ Estado: *PROCESANDO*\n\n"
+                f"💡 `/respond {solicitud_id} <mensaje>` para completar"
             )
             
             await update.callback_query.edit_message_text(mensaje, parse_mode="Markdown")
@@ -1510,10 +1812,10 @@ class TelegramBot:
                     chat_id=solicitud['usuario_id'],
                     text=(
                         f"🔄 *Solicitud en proceso*\n\n"
-                        f"🆔 *ID:* `{solicitud_id}`\n"
-                        f"📝 *Tu solicitud:* {solicitud['contenido'][:150]}{'...' if len(solicitud['contenido']) > 150 else ''}\n\n"
+                        f"🆔 `{solicitud_id}`\n"
+                        f"💬 {DatabaseManager.acortar_nombre(solicitud['contenido'], 100)}\n\n"
                         f"✅ Un administrador está procesando tu solicitud.\n"
-                        f"🔔 Recibirás una notificación cuando esté lista."
+                        f"🔔 Recibirás notificación cuando esté lista."
                     ),
                     parse_mode="Markdown"
                 )
@@ -1542,14 +1844,15 @@ class TelegramBot:
             self.solicitudes_db['estadisticas']['solicitudes_pendientes'] -= 1
         
         if self.db_manager.guardar_solicitudes(self.solicitudes_db):
-            # Actualizar el mensaje
+            # Mensaje compacto de confirmación
+            contenido_corto = DatabaseManager.acortar_nombre(solicitud['contenido'], 80)
+            
             mensaje = (
                 f"❌ *Solicitud rechazada*\n\n"
-                f"🆔 *ID:* `{solicitud_id}`\n"
-                f"👤 *Usuario:* {solicitud['usuario_nombre']}\n"
-                f"📝 *Contenido:* {solicitud['contenido'][:100]}{'...' if len(solicitud['contenido']) > 100 else ''}\n\n"
+                f"🆔 `{solicitud_id}` • 👤 {solicitud['usuario_nombre']}\n"
+                f"💬 {contenido_corto}\n\n"
                 f"❌ Estado: *RECHAZADO*\n"
-                f"📅 Fecha de rechazo: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+                f"📅 {datetime.now().strftime('%d/%m/%Y %H:%M')}"
             )
             
             await update.callback_query.edit_message_text(mensaje, parse_mode="Markdown")
@@ -1560,10 +1863,10 @@ class TelegramBot:
                     chat_id=solicitud['usuario_id'],
                     text=(
                         f"❌ *Solicitud rechazada*\n\n"
-                        f"🆔 *ID:* `{solicitud_id}`\n"
-                        f"📝 *Tu solicitud:* {solicitud['contenido'][:150]}{'...' if len(solicitud['contenido']) > 150 else ''}\n\n"
-                        f"❌ Tu solicitud ha sido rechazada por un administrador.\n"
-                        f"💡 Puedes enviar una nueva solicitud con `/request` si deseas."
+                        f"🆔 `{solicitud_id}`\n"
+                        f"💬 {DatabaseManager.acortar_nombre(solicitud['contenido'], 100)}\n\n"
+                        f"❌ Tu solicitud ha sido rechazada.\n"
+                        f"💡 Puedes enviar una nueva con `/request`"
                     ),
                     parse_mode="Markdown"
                 )
@@ -1573,24 +1876,24 @@ class TelegramBot:
             await update.callback_query.edit_message_text("❌ Error al procesar el rechazo.")
 
     # ═══════════════════════════════════════════════════════════════
-    # 🗑️ COMANDO DE ELIMINACIÓN Y OTROS UTILITARIOS
+    # 🗑️ COMANDO DE ELIMINACIÓN Y OTROS UTILITARIOS - MEJORADOS
     # ═══════════════════════════════════════════════════════════════
 
     async def delete_file(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Comando para eliminar archivos (solo admin)"""
+        """Comando para eliminar archivos (solo admin) - MEJORADO"""
         if not self.es_admin(update.effective_user.id):
             await update.message.reply_text("🚫 No tienes permiso para usar este comando.")
             return
 
         if not context.args:
             await update.message.reply_text(
-                "🗑️ *Uso del comando de eliminación:*\n\n"
+                "🗑️ *Eliminar archivos*\n\n"
                 "`/delete <clave_archivo>`\n\n"
                 "*Ejemplos:*\n"
                 "• `/delete honor_magic_5.zip`\n"
                 "• `/delete xiaomi_redmi_note_12`\n\n"
-                "⚠️ *Advertencia:* Esta acción es irreversible\n"
-                "💡 Usa `/list` para ver las claves de archivos",
+                "⚠️ *Acción irreversible*\n"
+                "💡 `/list` para ver claves disponibles",
                 parse_mode="Markdown"
             )
             return
@@ -1598,11 +1901,20 @@ class TelegramBot:
         clave = " ".join(context.args).strip()
         
         if clave not in self.db['archivos']:
-            await update.message.reply_text(
-                f"❌ *Archivo no encontrado*\n\n"
-                f"🔍 No existe el archivo con clave: `{clave}`\n"
-                f"💡 Usa `/list` para ver archivos disponibles"
-            )
+            # Buscar claves similares
+            claves_similares = [c for c in self.db['archivos'].keys() if clave.lower() in c.lower()]
+            
+            mensaje = f"❌ *Archivo no encontrado*\n\n🔍 No existe: `{clave}`\n"
+            
+            if claves_similares:
+                mensaje += f"\n💡 *¿Quisiste decir?*\n"
+                for similar in claves_similares[:5]:
+                    similar_corto = DatabaseManager.acortar_nombre(similar, 30)
+                    mensaje += f"• `{similar_corto}`\n"
+            
+            mensaje += f"\n📋 `/list` para ver todos los archivos"
+            
+            await update.message.reply_text(mensaje, parse_mode="Markdown")
             return
 
         # Obtener información del archivo antes de eliminarlo
@@ -1611,24 +1923,27 @@ class TelegramBot:
             nombre_original = info_archivo.get('nombre_original', clave)
             fecha_agregado = info_archivo.get('fecha_agregado', '')[:10]
             tamaño = info_archivo.get('tamaño', 0)
+            agregado_por = info_archivo.get('agregado_por_nombre', 'Desconocido')
         else:
             nombre_original = clave
             fecha_agregado = 'Desconocida'
             tamaño = 0
+            agregado_por = 'Desconocido'
 
         # Eliminar archivo
         del self.db['archivos'][clave]
         
         if self.db_manager.guardar_db(self.db):
             tamaño_mb = tamaño / 1024 / 1024 if tamaño > 0 else 0
+            nombre_corto = DatabaseManager.acortar_nombre(nombre_original, 35)
             
             await update.message.reply_text(
-                f"🗑️ *Archivo eliminado exitosamente*\n\n"
-                f"📁 *Nombre:* {nombre_original}\n"
-                f"🔑 *Clave:* `{clave}`\n"
-                f"📅 *Fecha agregado:* {fecha_agregado}\n"
-                f"💾 *Tamaño:* {tamaño_mb:.2f} MB\n\n"
-                f"✅ El archivo ha sido eliminado permanentemente",
+                f"🗑️ *Archivo eliminado*\n\n"
+                f"📁 {nombre_corto}\n"
+                f"🔑 `{clave}`\n"
+                f"📅 {fecha_agregado} • 👤 {agregado_por}\n"
+                f"💾 {tamaño_mb:.2f} MB\n\n"
+                f"✅ Eliminado permanentemente",
                 parse_mode="Markdown"
             )
             logger.info(f"🗑️ Archivo eliminado: {clave} por admin {update.effective_user.id}")
@@ -1636,7 +1951,7 @@ class TelegramBot:
             await update.message.reply_text("❌ Error al eliminar el archivo de la base de datos.")
 
     async def fix_invalid_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Comando para admin: mostrar archivos inválidos con detalles"""
+        """Comando para admin: mostrar archivos inválidos - DISEÑO MEJORADO"""
         if not self.es_admin(update.effective_user.id):
             await update.message.reply_text("🚫 No tienes permiso para usar este comando.")
             return
@@ -1647,39 +1962,54 @@ class TelegramBot:
                 archivos_invalidos.append((clave, info))
 
         if not archivos_invalidos:
-            await update.message.reply_text("✅ No hay archivos con enlaces inválidos.")
+            await update.message.reply_text(
+                "✅ *Estado perfecto*\n\n"
+                "No hay archivos con enlaces inválidos.\n"
+                "Todos los archivos están funcionando correctamente."
+            )
             return
 
-        mensaje = f"🚨 *Archivos inválidos - Detalles ({len(archivos_invalidos)}):*\n\n"
+        mensaje = (
+            f"🚨 *Archivos Inválidos*\n"
+            f"═══════════════════════\n\n"
+            f"⚠️ *Total:* {len(archivos_invalidos)} archivos\n"
+            f"🔧 *Requieren:* Reenvío manual\n\n"
+        )
         
         for i, (clave, info) in enumerate(archivos_invalidos[:15], 1):
             nombre = info.get('nombre_original', clave)
-            fecha = info.get('fecha_agregado', '')[:10] if info.get('fecha_agregado') else 'Sin fecha'
-            agregado_por = info.get('agregado_por_nombre', 'Desconocido')
-            enlace_original = info.get('enlace_original', 'No disponible')
+            fecha = info.get('fecha_agregado', '')[:10] if info.get('fecha_agregado') else 'S/F'
+            agregado_por = info.get('agregado_por_nombre', 'Desc.')
+            enlace_original = info.get('enlace_original', '')
             
-            mensaje += f"⚠️ *{i}. {nombre}*\n"
-            mensaje += f"🔑 `{clave}`\n"
-            mensaje += f"📅 {fecha} • 👤 {agregado_por}\n"
-            mensaje += f"🔗 {enlace_original[:50]}{'...' if len(enlace_original) > 50 else ''}\n"
-            mensaje += "─────────────────────\n"
+            nombre_corto = DatabaseManager.acortar_nombre(nombre, 25)
+            clave_corta = DatabaseManager.acortar_nombre(clave, 18)
+            usuario_corto = DatabaseManager.acortar_nombre(agregado_por, 8)
+            
+            mensaje += f"⚠️ *{i:02d}.* {nombre_corto}\n"
+            mensaje += f"     🔑 `{clave_corta}` • 📅 {fecha} • 👤 {usuario_corto}\n"
+            
+            if enlace_original and len(enlace_original) > 10:
+                enlace_corto = DatabaseManager.acortar_nombre(enlace_original, 40)
+                mensaje += f"     🔗 {enlace_corto}\n"
+            
+            mensaje += "──────────────────\n"
 
         if len(archivos_invalidos) > 15:
-            mensaje += f"\n... y {len(archivos_invalidos) - 15} archivos más\n"
+            mensaje += f"\n📄 *Mostrando 15 de {len(archivos_invalidos)} archivos*\n"
 
         mensaje += (
-            "\n📋 *Acciones recomendadas:*\n"
-            "1. 🔄 Reenvía los archivos originales al bot\n"
-            "2. 🗑️ Elimina archivos inválidos: `/delete <clave>`\n"
-            "3. 📞 Contacta a los usuarios para que reenvíen\n"
-            "4. 🔍 Verifica regularmente con este comando\n\n"
-            "💡 *Causa:* URLs temporales de Telegram API que expiraron"
+            f"\n🔧 *Plan de acción:*\n"
+            f"1. 🔄 Reenvía archivos originales al bot\n"
+            f"2. 🗑️ `/delete <clave>` para limpiar inválidos\n"
+            f"3. 📞 Contacta usuarios para reenvío\n\n"
+            f"💡 *Causa:* URLs temporales de Telegram que expiraron"
         )
 
         await self.enviar_mensaje_largo(update, mensaje, "Markdown", context)
 
     # ═══════════════════════════════════════════════════════════════
-    # 🚨 MANEJADOR DE ERRORES
+    # 🚨 MANEJADOR DE ERRORES MEJORADO
     # ═══════════════════════════════════════════════════════════════
 
     async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1689,20 +2019,44 @@ class TelegramBot:
         # Intentar enviar mensaje de error al usuario si es posible
         try:
             if isinstance(update, Update) and update.effective_message:
-                await update.effective_message.reply_text(
-                    "❌ *Error inesperado*\n\n"
-                    "🔄 Por favor, inténtalo de nuevo en unos momentos.\n"
-                    "💡 Si el problema persiste, contacta al administrador.\n\n"
-                    f"🆔 Error ID: {datetime.now().strftime('%Y%m%d_%H%M%S')}",
-                    parse_mode="Markdown"
-                )
+                error_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+                
+                # Determinar tipo de error para mensaje específico
+                error_str = str(context.error).lower()
+                if "timeout" in error_str:
+                    error_msg = (
+                        "⏰ *Timeout - Conexión lenta*\n\n"
+                        "🔄 Inténtalo de nuevo en unos segundos.\n"
+                        f"🆔 Error ID: {error_id}"
+                    )
+                elif "forbidden" in error_str:
+                    error_msg = (
+                        "🚫 *Error de permisos*\n\n"
+                        "🔧 Verifica que el bot tenga los permisos necesarios.\n"
+                        f"🆔 Error ID: {error_id}"
+                    )
+                elif "bad request" in error_str:
+                    error_msg = (
+                        "❌ *Solicitud incorrecta*\n\n"
+                        "🔄 Revisa el formato e inténtalo de nuevo.\n"
+                        f"🆔 Error ID: {error_id}"
+                    )
+                else:
+                    error_msg = (
+                        "❌ *Error inesperado*\n\n"
+                        "🔄 Inténtalo de nuevo en unos momentos.\n"
+                        f"💡 Si persiste, contacta al administrador.\n"
+                        f"🆔 Error ID: {error_id}"
+                    )
+                
+                await update.effective_message.reply_text(error_msg, parse_mode="Markdown")
         except Exception:
             # Si no se puede enviar el mensaje de error, solo registrar
             logger.error("❌ No se pudo enviar mensaje de error al usuario")
             pass
 
 # ═══════════════════════════════════════════════════════════════════
-# 🚀 FUNCIÓN PRINCIPAL
+# 🚀 FUNCIÓN PRINCIPAL MEJORADA
 # ═══════════════════════════════════════════════════════════════════
 
 def main():
@@ -1731,7 +2085,11 @@ def main():
                     CallbackQueryHandler(bot.post_button_handler, pattern="^post_")
                 ],
                 POST_MEDIA: [
-                    MessageHandler(filters.ALL & ~filters.COMMAND, bot.handle_post_media),
+                    MessageHandler(
+                        (filters.PHOTO | filters.VIDEO | filters.ANIMATION | 
+                         filters.AUDIO | filters.VOICE | filters.Document.ALL) & ~filters.COMMAND, 
+                        bot.handle_post_media
+                    ),
                     MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_post_media)
                 ]
             },
@@ -1759,7 +2117,7 @@ def main():
         app.add_handler(CommandHandler("adminrequests", bot.admin_requests))
         app.add_handler(CommandHandler("respond", bot.respond_request))
         
-        # Manejadores de contenido
+        # Manejadores de contenido mejorados
         app.add_handler(CallbackQueryHandler(bot.button_handler))
         app.add_handler(MessageHandler(filters.Document.ALL, bot.recibir_archivo))
         
@@ -1767,33 +2125,43 @@ def main():
         app.add_error_handler(bot.error_handler)
 
         # ═══════════════════════════════════════════════════════════
-        # 📊 INFORMACIÓN DE INICIO
+        # 📊 INFORMACIÓN DE INICIO MEJORADA
         # ═══════════════════════════════════════════════════════════
         
         logger.info("🤖 Bot iniciado exitosamente")
         print("✅ Bot en ejecución correctamente")
-        print("\n" + "═" * 60)
+        print("\n" + "═" * 65)
         print("📋 COMANDOS DISPONIBLES:")
-        print("═" * 60)
+        print("═" * 65)
         print("👥 USUARIOS:")
-        print("   🚀 /start - Menú principal con botones")
-        print("   🔍 /search <palabra> - Buscar archivos")
-        print("   📥 /request <enlace|descripción> - Solicitar archivo")
-        print("   📊 /mystatus - Ver estado de mis solicitudes")
-        print("   ℹ️  /help - Ayuda completa")
+        print("   🚀 /start      - Menú principal interactivo")
+        print("   🔍 /search     - Buscar archivos por palabra clave")
+        print("   📥 /request    - Solicitar archivo (enlace o descripción)")
+        print("   📊 /mystatus   - Ver estado de mis solicitudes")
+        print("   ℹ️  /help      - Guía completa de uso")
         print("\n👨‍💼 ADMINISTRADORES:")
-        print("   📋 /list [filtro] - Lista todos los archivos")
-        print("   📥 /adminrequests [estado] - Gestionar solicitudes")
-        print("   📝 /respond <ID> <respuesta> - Responder solicitud")
-        print("   🗑️ /delete <clave> - Eliminar archivo")
-        print("   🔧 /fixfiles - Ver archivos inválidos")
-        print("   📢 /post - Crear publicación en el canal")
-        print("═" * 60)
-        print(f"🆔 Admin ID: {Config.ADMIN_ID}")
-        print(f"📺 Canal ID: {Config.CANAL_ID}")
-        print(f"📊 Archivos en BD: {len(bot.db['archivos'])}")
-        print(f"📋 Solicitudes: {bot.solicitudes_db['estadisticas']['total_solicitudes']}")
-        print("═" * 60)
+        print("   📋 /list [V|I|A] - Lista archivos (Válidos|Inválidos|Antiguos)")
+        print("   📥 /adminrequests [estado] - Gestionar todas las solicitudes")
+        print("   📝 /respond <ID> <msg> - Responder a solicitud específica")
+        print("   🗑️ /delete <clave> - Eliminar archivo permanentemente")
+        print("   🔧 /fixfiles - Ver y gestionar archivos inválidos")
+        print("   📢 /post - Sistema de publicaciones al canal")
+        print("═" * 65)
+        print("🔧 CONFIGURACIÓN:")
+        print(f"   🆔 Admin ID: {Config.ADMIN_ID}")
+        print(f"   📺 Canal ID: {Config.CANAL_ID}")
+        print(f"   📁 Archivos en BD: {len(bot.db['archivos'])}")
+        print(f"   📋 Total solicitudes: {bot.solicitudes_db['estadisticas']['total_solicitudes']}")
+        print(f"   ⏳ Solicitudes pendientes: {bot.solicitudes_db['estadisticas']['solicitudes_pendientes']}")
+        
+        # Verificar archivos inválidos
+        archivos_invalidos = sum(1 for info in bot.db['archivos'].values() 
+                               if isinstance(info, dict) and info.get('enlace') == 'ENLACE_INVALIDO_MIGRAR')
+        if archivos_invalidos > 0:
+            print(f"   ⚠️ Archivos inválidos: {archivos_invalidos}")
+        
+        print("═" * 65)
+        print("🚀 Bot listo para recibir comandos...")
         
         # Iniciar el bot
         app.run_polling(drop_pending_updates=True)
