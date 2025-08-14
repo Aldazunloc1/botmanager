@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Instalar Poetry y pm2
-RUN pip install poetry && npm install -g pm2
+RUN  npm install -g pm2
 
 # Establecer directorio de trabajo
 WORKDIR /app
