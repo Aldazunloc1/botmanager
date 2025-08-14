@@ -16,12 +16,6 @@ RUN pip install poetry && npm install -g pm2
 # Directorio de trabajo
 WORKDIR /app
 
-# Copiar archivos de Poetry
-COPY pyproject.toml poetry.lock* /app/
-
-# Configurar Poetry sin virtualenv
-RUN poetry config virtualenvs.create false
-
 # Instalar dependencias
 RUN poetry install --no-dev
 
