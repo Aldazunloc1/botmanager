@@ -16,8 +16,6 @@ RUN pip install poetry && npm install -g pm2
 # Directorio de trabajo
 WORKDIR /app
 
-# Instalar dependencias
-RUN poetry install --no-dev
 
 # Copiar código
 COPY . /app/
