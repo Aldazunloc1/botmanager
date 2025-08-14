@@ -1,0 +1,23 @@
+INFO:     Started server process [23519]
+INFO:     Waiting for application startup.
+2025-08-14 20:16:56,956 - app.main - INFO - 🚀 Starting IMEI Bot Manager...
+2025-08-14 20:16:57,005 - app.services.database - INFO - Loaded 2 users from database
+2025-08-14 20:16:57,005 - app.services.autopinger - INFO - AutoPinger initialized - Enabled: True
+2025-08-14 20:16:57,011 - app.main - INFO - 🔄 Starting polling mode...
+2025-08-14 20:16:57,011 - app.services.autopinger - INFO - AutoPinger disabled or no URL configured
+2025-08-14 20:16:57,011 - app.main - INFO - 📡 AutoPinger started
+2025-08-14 20:16:57,011 - app.bot.bot_manager - INFO - 🔄 Starting polling mode...
+2025-08-14 20:16:57,011 - app.services.autopinger - INFO - AutoPinger disabled or no URL configured
+2025-08-14 20:16:57,012 - aiogram.dispatcher - INFO - Start polling
+INFO:     Application startup complete.
+ERROR:    [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+INFO:     Waiting for application shutdown.
+2025-08-14 20:16:57,021 - app.main - INFO - 🛑 Shutting down...
+2025-08-14 20:16:57,022 - aiogram.dispatcher - INFO - Polling stopped
+2025-08-14 20:16:57,272 - app.main - INFO - ✅ Shutdown complete
+INFO:     Application shutdown complete.
+[2025-08-14 20:26:46,718] [INFO] 🚀 Starting IMEI Bot Manager...
+[2025-08-14 20:26:47,314] [INFO] 🔄 Starting polling mode...
+[2025-08-14 20:26:47,881] [INFO] 📡 AutoPinger started
+[2025-08-14 20:26:48,439] [INFO] 🛑 Shutting down...
+[2025-08-14 20:26:49,245] [INFO] ✅ Shutdown complete
