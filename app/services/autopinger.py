@@ -4,7 +4,20 @@ from typing import Optional
 import logging
 
 logger = logging.getLogger(__name__)
+# Agregar este método a la clase AutoPinger en app/services/autopinger.py
 
+def get_status(self):
+    """Get AutoPinger status information"""
+    return {
+        "enabled": getattr(self, 'enabled', False),
+        "url": getattr(self, 'url', None),
+        "interval": getattr(self, 'interval', None),
+        "last_ping": getattr(self, 'last_ping', None),
+        "ping_count": getattr(self, 'ping_count', 0),
+        "is_running": getattr(self, 'is_running', False),
+        "error_count": getattr(self, 'error_count', 0),
+        "last_error": getattr(self, 'last_error', None)
+    }
 class AutoPinger:
     def __init__(self, config, bot):
         """Initialize AutoPinger with config and bot instance"""

@@ -2,8 +2,8 @@
 
 SERVICES_DATA = [
     # Apple Services
-    {"id": 1, "title": "Find My iPhone [ FMI ] (ON/OFF)", "price": "0.02", "category": "Apple", "object": True, "limits": 3},
-    {"id": 2, "title": "Warranty + Activation - PRO [IMEI/SN]", "price": "0.04", "category": "Apple", "object": True, "limits": 5},
+    {"id": 1, "title": "Find My iPhone [ FMI ] (ON/OFF)", "price": "0.05", "category": "Apple", "object": True, "limits": 3},
+    {"id": 2, "title": "Warranty + Activation - PRO [IMEI/SN]", "price": "0.08", "category": "Apple", "object": True, "limits": 5},
     {"id": 3, "title": "Apple FULL INFO [No Carrier]", "price": "0.14", "category": "Apple", "object": True, "limits": 6},
     {"id": 4, "title": "iCloud Clean/Lost Check", "price": "0.04", "category": "Apple", "object": True, "limits": 4},
     {"id": 7, "title": "Apple Carrier + SimLock - back-up", "price": "0.22", "category": "Apple", "object": False, "limits": 3},
@@ -12,17 +12,17 @@ SERVICES_DATA = [
     {"id": 13, "title": "Model + Color + Storage + FMI", "price": "0.04", "category": "Apple", "object": True, "limits": 3},
     {"id": 18, "title": "iMac FMI Status On/Off", "price": "0.60", "category": "Apple", "object": True, "limits": 2},
     {"id": 19, "title": "Apple FULL INFO [+Carrier] B", "price": "0.24", "category": "Apple", "object": True, "limits": 4},
-    {"id": 20, "title": "Apple SimLock Check", "price": "0.04", "category": "Apple", "object": True, "limits": 4},
+    {"id": 20, "title": "Apple SimLock Check", "price": "0.09", "category": "Apple", "object": True, "limits": 4},
     {"id": 22, "title": "Apple BASIC INFO (PRO) - new", "price": "0.08", "category": "Apple", "object": True, "limits": 5},
     {"id": 23, "title": "Apple Carrier Check (S2)", "price": "0.08", "category": "Apple", "object": True, "limits": 3},
-    {"id": 33, "title": "Replacement Status (Active Device)", "price": "0.02", "category": "Apple", "object": True, "limits": 4},
-    {"id": 34, "title": "Replaced Status (Original Device)", "price": "0.02", "category": "Apple", "object": True, "limits": 4},
+    {"id": 33, "title": "Replacement Status (Active Device)", "price": "0.09", "category": "Apple", "object": True, "limits": 4},
+    {"id": 34, "title": "Replaced Status (Original Device)", "price": "0.09", "category": "Apple", "object": True, "limits": 4},
     {"id": 39, "title": "APPLE FULL INFO [+Carrier] A", "price": "0.20", "category": "Apple", "object": True, "limits": 8},
     {"id": 41, "title": "MDM Status ON/OFF", "price": "0.44", "category": "Apple", "object": True, "limits": 2},
     {"id": 46, "title": "MDM Status ON/OFF + GSX Policy + FMI", "price": "0.90", "category": "Apple", "object": True, "limits": 3},
     {"id": 47, "title": "Apple FULL + MDM + GSMA PRO", "price": "1.50", "category": "Apple", "object": True, "limits": 2},
-    {"id": 50, "title": "Apple SERIAL Info(model,size,color)", "price": "0.02", "category": "Apple", "object": False, "limits": 5},
-    {"id": 51, "title": "Warranty + Activation [SN ONLY]", "price": "0.02", "category": "Apple", "object": True, "limits": 10},
+    {"id": 50, "title": "Apple SERIAL Info(model,size,color)", "price": "0.09", "category": "Apple", "object": False, "limits": 5},
+    {"id": 51, "title": "Warranty + Activation [SN ONLY]", "price": "0.09", "category": "Apple", "object": True, "limits": 10},
     {"id": 52, "title": "Model Description (Any Apple SN/IMEI)", "price": "0.04", "category": "Apple", "object": False, "limits": 3},
     {"id": 61, "title": "Apple Demo Unit Device Info", "price": "0.28", "category": "Apple", "object": False, "limits": 3},
     
