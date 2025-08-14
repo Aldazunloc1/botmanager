@@ -21,10 +21,7 @@ WORKDIR /app
 # Copiar solo el contenido de tu carpeta app/ al contenedor
 COPY app/ /app/
 
-# Instalar dependencias del proyecto (sin dev)
-COPY pyproject.toml poetry.lock* /app/
-RUN poetry config virtualenvs.create false \
-    && poetry install --no-dev
+
 
 # Crear usuario no-root
 RUN useradd --create-home --shell /bin/bash app \
