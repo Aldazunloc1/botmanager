@@ -1,14 +1,41 @@
-version: "3.9"
+version: '3.8'
 
 services:
-  bot:
+  botmanager:
     build: .
-    container_name: aldazcheck_bot
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     volumes:
-      - .:/app
-    environment:
-      - PYTHONUNBUFFERED=1
-      - API_AUTH_TOKEN=tu_token_aqui
+      - ./data:/app/data
+      - ./logs:/app/logs
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    environment:
+      - USERS_DB_PATH=data/users.json
+      - SERVICES_DB_PATH=data/services.json
+    
+  # Optional: Add nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./ssl:/etc/nginx/ssl
+    depends_on:
+      - botmanager
+    restart: unless-stopped
+    profiles:
+      - production
+
+volumes:
+  data:
+  logs:

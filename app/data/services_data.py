@@ -1,0 +1,53 @@
+"""Services data for IMEI checker"""
+
+SERVICES_DATA = [
+    # Apple Services
+    {"id": 1, "title": "Find My iPhone [ FMI ] (ON/OFF)", "price": "0.02", "category": "Apple", "object": True, "limits": 3},
+    {"id": 2, "title": "Warranty + Activation - PRO [IMEI/SN]", "price": "0.04", "category": "Apple", "object": True, "limits": 5},
+    {"id": 3, "title": "Apple FULL INFO [No Carrier]", "price": "0.14", "category": "Apple", "object": True, "limits": 6},
+    {"id": 4, "title": "iCloud Clean/Lost Check", "price": "0.04", "category": "Apple", "object": True, "limits": 4},
+    {"id": 7, "title": "Apple Carrier + SimLock - back-up", "price": "0.22", "category": "Apple", "object": False, "limits": 3},
+    {"id": 9, "title": "SOLD BY + GSX - Service is DOWN", "price": "3.38", "category": "Apple", "object": True, "limits": 2},
+    {"id": 12, "title": "GSX Next Tether + iOS (GSX Carrier)", "price": "1.20", "category": "Apple", "object": True, "limits": 2},
+    {"id": 13, "title": "Model + Color + Storage + FMI", "price": "0.04", "category": "Apple", "object": True, "limits": 3},
+    {"id": 18, "title": "iMac FMI Status On/Off", "price": "0.60", "category": "Apple", "object": True, "limits": 2},
+    {"id": 19, "title": "Apple FULL INFO [+Carrier] B", "price": "0.24", "category": "Apple", "object": True, "limits": 4},
+    {"id": 20, "title": "Apple SimLock Check", "price": "0.04", "category": "Apple", "object": True, "limits": 4},
+    {"id": 22, "title": "Apple BASIC INFO (PRO) - new", "price": "0.08", "category": "Apple", "object": True, "limits": 5},
+    {"id": 23, "title": "Apple Carrier Check (S2)", "price": "0.08", "category": "Apple", "object": True, "limits": 3},
+    {"id": 33, "title": "Replacement Status (Active Device)", "price": "0.02", "category": "Apple", "object": True, "limits": 4},
+    {"id": 34, "title": "Replaced Status (Original Device)", "price": "0.02", "category": "Apple", "object": True, "limits": 4},
+    {"id": 39, "title": "APPLE FULL INFO [+Carrier] A", "price": "0.20", "category": "Apple", "object": True, "limits": 8},
+    {"id": 41, "title": "MDM Status ON/OFF", "price": "0.44", "category": "Apple", "object": True, "limits": 2},
+    {"id": 46, "title": "MDM Status ON/OFF + GSX Policy + FMI", "price": "0.90", "category": "Apple", "object": True, "limits": 3},
+    {"id": 47, "title": "Apple FULL + MDM + GSMA PRO", "price": "1.50", "category": "Apple", "object": True, "limits": 2},
+    {"id": 50, "title": "Apple SERIAL Info(model,size,color)", "price": "0.02", "category": "Apple", "object": False, "limits": 5},
+    {"id": 51, "title": "Warranty + Activation [SN ONLY]", "price": "0.02", "category": "Apple", "object": True, "limits": 10},
+    {"id": 52, "title": "Model Description (Any Apple SN/IMEI)", "price": "0.04", "category": "Apple", "object": False, "limits": 3},
+    {"id": 61, "title": "Apple Demo Unit Device Info", "price": "0.28", "category": "Apple", "object": False, "limits": 3},
+    
+    # Android Services
+    {"id": 8, "title": "Samsung Info (S1) (IMEI)", "price": "0.08", "category": "Android", "object": True, "limits": 6},
+    {"id": 17, "title": "Huawei IMEI Info", "price": "0.14", "category": "Android", "object": True, "limits": 5},
+    {"id": 21, "title": "SAMSUNG INFO & KNOX STATUS (S2)", "price": "0.28", "category": "Android", "object": False, "limits": 5},
+    {"id": 25, "title": "XIAOMI MI LOCK & INFO", "price": "0.10", "category": "Android", "object": False, "limits": 4},
+    {"id": 27, "title": "ONEPLUS IMEI INFO", "price": "0.08", "category": "Android", "object": True, "limits": 2},
+    {"id": 36, "title": "Samsung Info (S1) + Blacklist", "price": "0.12", "category": "Android", "object": False, "limits": 2},
+    {"id": 37, "title": "Samsung Info & KNOX STATUS (S1)", "price": "0.18", "category": "Android", "object": False, "limits": 3},
+    {"id": 57, "title": "Google Pixel Info", "price": "0.24", "category": "Android", "object": False, "limits": 5},
+    {"id": 58, "title": "Honor Info", "price": "0.10", "category": "Android", "object": False, "limits": 3},
+    {"id": 59, "title": "Realme Info", "price": "0.06", "category": "Android", "object": False, "limits": 3},
+    {"id": 60, "title": "Oppo Info", "price": "0.06", "category": "Android", "object": False, "limits": 3},
+    {"id": 63, "title": "Motorola Info", "price": "0.08", "category": "Android", "object": False, "limits": 3},
+    
+    # General Services
+    {"id": 5, "title": "Blacklist Status (GSMA)", "price": "0.04", "category": "General", "object": True, "limits": 4},
+    {"id": 6, "title": "Blacklist Pro Check (GSMA)", "price": "0.16", "category": "General", "object": True, "limits": 3},
+    {"id": 10, "title": "IMEI to Model [all brands][IMEI/SN]", "price": "0.02", "category": "General", "object": False, "limits": 10},
+    {"id": 11, "title": "IMEI to Brand/Model/Name", "price": "0.02", "category": "General", "object": True, "limits": 15},
+    {"id": 14, "title": "IMEI to SN (Full Convertor)", "price": "0.04", "category": "General", "object": True, "limits": 10},
+    {"id": 15, "title": "T-mobile (ESN) PRO Check", "price": "0.08", "category": "General", "object": False, "limits": 3},
+    {"id": 16, "title": "Verizon (ESN) Clean/Lost Status", "price": "0.06", "category": "General", "object": False, "limits": 4},
+    {"id": 55, "title": "Blacklist Status - cheap", "price": "0.02", "category": "General", "object": False, "limits": 4},
+    {"id": 62, "title": "EID INFO (IMEI TO EID)", "price": "0.04", "category": "General", "object": False, "limits": 3},
+]
