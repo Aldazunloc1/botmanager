@@ -1,52 +1,37 @@
 FROM python:3.11-slim
 
-# Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# Install system dependencies
+# Instalar dependencias del sistema y npm para pm2
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Poetry
-RUN pip install poetry
+# Instalar Poetry y pm2
+RUN pip install poetry && npm install -g pm2
 
-# Set work directory
+# Directorio de trabajo
 WORKDIR /app
 
-# Copy poetry files
+# Copiar archivos de Poetry
 COPY pyproject.toml poetry.lock* /app/
 
-# Configure poetry
+# Configurar Poetry sin virtualenv
 RUN poetry config virtualenvs.create false
 
-<<<<<<< HEAD
-# Instalar dependencias (excepto torch, si da problemas)
-RUN grep -v "torch" requirements.txt 
-# Instalar torch CPU (opcional)
-RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-=======
-# Install dependencies
+# Instalar dependencias
 RUN poetry install --no-dev
 
-# Copy application
+# Copiar código
 COPY . /app/
->>>>>>> 0fb9278 (commit)
 
-# Create non-root user
+# Crear usuario no-root
 RUN useradd --create-home --shell /bin/bash app \
     && chown -R app:app /app
 USER app
 
-# Expose port
-EXPOSE 8000
-
-RUN poetry install --only=main
-# Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
-
-# Run application
-CMD ["python", "-m", "app.main"]
+# Ejecutar el bot con pm2-runtime
+CMD ["pm2-runtime", "main.py", "--interpreter=python3"]
