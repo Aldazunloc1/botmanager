@@ -1,5 +1,7 @@
+# Base Python slim
 FROM python:3.11-slim
 
+# Evitar buffers y bytecode
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
@@ -13,17 +15,21 @@ RUN apt-get update && apt-get install -y \
 # Instalar Poetry y pm2
 RUN pip install poetry && npm install -g pm2
 
-# Directorio de trabajo
+# Establecer directorio de trabajo
 WORKDIR /app
 
+# Copiar solo el contenido de tu carpeta app/ al contenedor
+COPY app/ /app/
 
-# Copiar código
-COPY . /app/
+# Instalar dependencias del proyecto (sin dev)
+COPY pyproject.toml poetry.lock* /app/
+RUN poetry config virtualenvs.create false \
+    && poetry install --no-dev
 
 # Crear usuario no-root
 RUN useradd --create-home --shell /bin/bash app \
     && chown -R app:app /app
 USER app
 
-# Ejecutar el bot con pm2-runtime
+# Comando para ejecutar el bot con pm2-runtime
 CMD ["pm2-runtime", "main.py", "--interpreter=python3"]
